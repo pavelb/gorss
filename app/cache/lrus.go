@@ -13,13 +13,9 @@ type cacheValue struct {
 	Value string
 }
 
-type SavableItem struct {
+type savableItem struct {
 	Key   string
 	Value string
-}
-
-func (lrus *LRUS) Size() uint64 {
-	return lrus.lru.size
 }
 
 func (cv *cacheValue) Size() int {
@@ -35,8 +31,7 @@ func (lrus *LRUS) Set(key string, value string) {
 }
 
 func (lrus *LRUS) Get(key string) (value string, ok bool) {
-	cached, ok := lrus.lru.Get(key)
-	if ok {
+	if cached, ok := lrus.lru.Get(key); ok {
 		value = cached.(*cacheValue).Value
 	}
 	return
@@ -47,14 +42,15 @@ func LoadLRUS(capacity uint64, file string) (lrus *LRUS, err error) {
 
 	fileHandle, err := os.OpenFile(file, os.O_RDONLY, 0600)
 	if err != nil {
-		err = nil
-		return
+		return lrus, nil
 	}
 	defer fileHandle.Close()
 
-	decoder := gob.NewDecoder(fileHandle)
-	var items []SavableItem
-	err = decoder.Decode(&items)
+	var items []savableItem
+	err = gob.NewDecoder(fileHandle).Decode(&items)
+	if err != nil {
+		return
+	}
 	for _, item := range items {
 		lrus.Set(item.Key, item.Value)
 	}
@@ -68,13 +64,12 @@ func (lrus *LRUS) Save(file string) (err error) {
 	}
 	defer fileHandle.Close()
 
-	var si []SavableItem
+	var items []savableItem
 	for _, item := range lrus.lru.Items() {
-		si = append(si, SavableItem{
+		items = append(items, savableItem{
 			Key:   item.Key,
 			Value: item.Value.(*cacheValue).Value,
 		})
 	}
-	gob.NewEncoder(fileHandle).Encode(si)
-	return
+	return gob.NewEncoder(fileHandle).Encode(items)
 }

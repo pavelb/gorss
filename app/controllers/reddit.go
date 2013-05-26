@@ -114,7 +114,6 @@ func (r Html) Apply(req *revel.Request, resp *revel.Response) {
 func (c Reddit) Feed(r string) revel.Result {
 	const embedCacheFile = "embedCache"
 	cache, err := cache.LoadLRUS(100*1024, embedCacheFile)
-	fmt.Println(cache.Size())
 	if err != nil {
 		return Html(fmt.Sprint(err))
 	}
