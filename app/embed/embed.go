@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"rss/app/cache"
 )
 
 // Check out http://noembed.com/
@@ -95,7 +96,7 @@ func oembed(mustMatch string, endpoint string, uri string, args *map[string]stri
 	return
 }
 
-func addOembedStrategies(strategies *[]Strategy) {
+func addOembedStrategies(strategies *[]Strategy, args *map[string]string) {
 	providers := map[string]string{
 		"http://www.youtube.com/oembed":           "youtu",
 		"http://www.flickr.com/services/oembed":   "flickr",
@@ -107,9 +108,9 @@ func addOembedStrategies(strategies *[]Strategy) {
 		"http://www.collegehumor.com/oembed.json": "collegehumor",
 		"http://api.imgur.com/oembed":             "imgur",
 	}
-	// if apiKey, ok := (*args)["EmbedlyAPIKey"]; ok {
-	// 	providers["http://api.embed.ly/1/oembed?key="+apiKey] = ""
-	// }
+	if apiKey, ok := (*args)["EmbedlyAPIKey"]; ok {
+		providers["http://api.embed.ly/1/oembed?key="+apiKey] = ""
+	}
 	for endpoint, mustMatch := range providers {
 		*strategies = append(*strategies, func(mustMatch string, endpoint string) Strategy {
 			return func(url string, args *map[string]string) (markup string, err error) {
@@ -119,13 +120,13 @@ func addOembedStrategies(strategies *[]Strategy) {
 	}
 }
 
-func GetMarkup(url string, args *map[string]string) string {
+func getMarkup(url string, args *map[string]string) string {
 	strategies := []Strategy{
 		embedImage,
 		embedExtensionlessImage,
 		embedImgurGalleryImage,
 	}
-	addOembedStrategies(&strategies)
+	addOembedStrategies(&strategies, args)
 
 	for _, strategy := range strategies {
 		markup, err := strategy(url, args)
@@ -136,4 +137,18 @@ func GetMarkup(url string, args *map[string]string) string {
 		}
 	}
 	return "..."
+}
+
+func GetMarkup(url string, args *map[string]string, cache *cache.LRUS) string {
+	bytes, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Sprint(err)
+	}
+	key := url + string(bytes)
+	if description, ok := cache.Get(key); ok {
+		return description
+	}
+	description := getMarkup(url, args)
+	cache.Set(key, description)
+	return description
 }

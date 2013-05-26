@@ -6,6 +6,7 @@ import (
 	"github.com/robfig/revel"
 	"io/ioutil"
 	"net/http"
+	"rss/app/cache"
 	"rss/app/embed"
 	"rss/app/rss"
 	"sync"
@@ -37,7 +38,7 @@ func getURL(url string) (bytes []byte, err error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func newRSSItem(jsonItem *JSONItem) *rss.Item {
+func newRSSItem(jsonItem *JSONItem, cache *cache.LRUS) *rss.Item {
 	comments := "http://reddit.com" + jsonItem.Permalink
 
 	args := &map[string]string{
@@ -46,7 +47,7 @@ func newRSSItem(jsonItem *JSONItem) *rss.Item {
 	}
 	description := fmt.Sprintf(
 		"%s<br/><a href='%s'>Comments</a>",
-		embed.GetMarkup(jsonItem.Url, args),
+		embed.GetMarkup(jsonItem.Url, args, cache),
 		comments,
 	)
 
@@ -70,7 +71,7 @@ func newJSONFeed(subreddit string, limit int) (jsonFeed *JSONFeed, err error) {
 	return
 }
 
-func newRSSFeed(subreddit string, limit int) (feed *rss.Feed, err error) {
+func newRSSFeed(subreddit string, limit int, cache *cache.LRUS) (feed *rss.Feed, err error) {
 	jsonFeed, err := newJSONFeed(subreddit, limit)
 	if err != nil {
 		return
@@ -92,7 +93,7 @@ func newRSSFeed(subreddit string, limit int) (feed *rss.Feed, err error) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			feed.Channel.Items[i] = newRSSItem(&jsonFeed.Data.Children[i].Data)
+			feed.Channel.Items[i] = newRSSItem(&jsonFeed.Data.Children[i].Data, cache)
 		}(i)
 	}
 	wg.Wait()
@@ -111,7 +112,17 @@ func (r Html) Apply(req *revel.Request, resp *revel.Response) {
 }
 
 func (c Reddit) Feed(r string) revel.Result {
-	feed, err := newRSSFeed(r, 100)
+	const embedCacheFile = "embedCache"
+	cache, err := cache.LoadLRUS(100*1024, embedCacheFile)
+	fmt.Println(cache.Size())
+	if err != nil {
+		return Html(fmt.Sprint(err))
+	}
+	feed, err := newRSSFeed(r, 100, cache)
+	if err != nil {
+		return Html(fmt.Sprint(err))
+	}
+	err = cache.Save(embedCacheFile)
 	if err != nil {
 		return Html(fmt.Sprint(err))
 	}
