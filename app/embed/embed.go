@@ -37,7 +37,7 @@ func embedImage(url string, args *map[string]string) (markup string, err error) 
 	if header, ok := resp.Header["Content-Type"]; ok {
 		for _, mimeType := range header {
 			const prefix = "image"
-			if len(mimeType) >= len(prefix) && mimeType[:5] == prefix {
+			if len(mimeType) >= len(prefix) && mimeType[:len(prefix)] == prefix {
 				return imageMarkup(url), nil
 			}
 		}
