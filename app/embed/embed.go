@@ -78,6 +78,24 @@ func oembed(mustMatch string, endpoint string, uri string, args *map[string]stri
 	if err != nil {
 		return
 	}
+
+	// Imgur gallery
+	if response["provider_name"] == "Imgur" && response["type"] == "rich" {
+		bytes, err = getURL(uri)
+		if err != nil {
+			return
+		}
+		html := string(bytes)
+		const idRegex = "<a name=['\"](\\w+)['\"]"
+		matches := regexp.MustCompile(idRegex).FindAllStringSubmatch(html, -1)
+		var images []string
+		for _, matchGroup := range matches {
+			galleryURL := fmt.Sprintf("http://i.imgur.com/%s.png", matchGroup[1])
+			images = append(images, imageMarkup(galleryURL))
+		}
+		return fmt.Sprintln(strings.Join(images, "<br/><br/>")), nil
+	}
+
 	if html, ok := response["html"]; ok {
 		return html.(string), nil
 	}
