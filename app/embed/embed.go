@@ -54,8 +54,8 @@ func embedImgurGalleryImage(url string, args *map[string]string) (markup string,
 }
 
 func oembed(mustMatch string, endpoint string, uri string, args *map[string]string) (markup string, err error) {
-	var matcher = regexp.MustCompile(mustMatch)
-	if !matcher.MatchString(uri) {
+	matched, err := regexp.MatchString(mustMatch, uri)
+	if err != nil || !matched {
 		return
 	}
 	u, err := url.Parse(endpoint)
