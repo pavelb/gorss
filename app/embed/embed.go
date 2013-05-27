@@ -98,6 +98,7 @@ func oembed(mustMatch string, endpoint string, uri string, args *map[string]stri
 
 func addOembedStrategies(strategies *[]Strategy, args *map[string]string) {
 	providers := map[string]string{
+		"http://api.imgur.com/oembed":             "imgur",
 		"http://www.youtube.com/oembed":           "youtu",
 		"http://www.flickr.com/services/oembed":   "flickr",
 		"http://lab.viddler.com/services/oembed":  "viddler",
@@ -106,7 +107,6 @@ func addOembedStrategies(strategies *[]Strategy, args *map[string]string) {
 		"http://www.hulu.com/api/oembed.json":     "hulu",
 		"http://vimeo.com/api/oembed.json":        "vimeo",
 		"http://www.collegehumor.com/oembed.json": "collegehumor",
-		"http://api.imgur.com/oembed":             "imgur",
 	}
 	if apiKey, ok := (*args)["EmbedlyAPIKey"]; ok {
 		providers["http://api.embed.ly/1/oembed?key="+apiKey] = ""
