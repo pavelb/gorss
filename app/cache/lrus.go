@@ -31,7 +31,8 @@ func (lrus *LRUS) Set(key string, value string) {
 }
 
 func (lrus *LRUS) Get(key string) (value string, ok bool) {
-	if cached, ok := lrus.lru.Get(key); ok {
+	cached, ok := lrus.lru.Get(key)
+	if ok {
 		value = cached.(*cacheValue).Value
 	}
 	return
