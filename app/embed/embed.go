@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"rss/app/cache"
+	"GoRSS/app/cache"
 	"strings"
 )
 

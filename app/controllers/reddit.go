@@ -6,9 +6,9 @@ import (
 	"github.com/robfig/revel"
 	"io/ioutil"
 	"net/http"
-	"rss/app/cache"
-	"rss/app/embed"
-	"rss/app/rss"
+	"GoRSS/app/cache"
+	"GoRSS/app/embed"
+	"GoRSS/app/rss"
 	"sync"
 	"time"
 )
