@@ -22,13 +22,21 @@ func NewEmbedder(cache *cache.LRUS, args map[string]string) *Embedder {
 	return &Embedder{cache, args}
 }
 
-func getURL(url string) (bytes []byte, err error) {
+func getBytes(url string) (bytes []byte, err error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
 	return ioutil.ReadAll(resp.Body)
+}
+
+func getHTML(url string) (html string, err error) {
+	bytes, err := getBytes(url)
+	if err != nil {
+		return
+	}
+	return string(bytes), nil
 }
 
 func (e *Embedder) imageMarkup(url string) string {
@@ -62,16 +70,32 @@ func (e *Embedder) embedImgurGalleryImage(url string) (markup string, err error)
 	return e.embedExtensionlessImage(strings.Replace(url, "/gallery", "", 1))
 }
 
+func (e *Embedder) embedImgurGallery(url string) (markup string, err error) {
+	html, err := getHTML(url)
+	if err != nil {
+		return
+	}
+	const idRegex = "<a name=['\"](\\w+)['\"]"
+	matches := regexp.MustCompile(idRegex).FindAllStringSubmatch(html, -1)
+	var images []string
+	for _, matchGroup := range matches {
+		if len(matchGroup) > 1 {
+			galleryURL := fmt.Sprintf("http://i.imgur.com/%s.png", matchGroup[1])
+			images = append(images, e.imageMarkup(galleryURL))
+		}
+	}
+	return strings.Join(images, "<br/><br/>"), nil
+}
+
 func (e *Embedder) embedQuickmeme(url string) (markup string, err error) {
 	matched, err := regexp.MatchString("quickmeme.com", url)
 	if err != nil || !matched {
 		return
 	}
-	bytes, err := getURL(url)
+	html, err := getHTML(url)
 	if err != nil {
 		return
 	}
-	html := string(bytes)
 	const idRegex = "id=\"img\".*src=\"(.*)\""
 	matchGroup := regexp.MustCompile(idRegex).FindStringSubmatch(html)
 	if len(matchGroup) > 1 {
@@ -96,7 +120,7 @@ func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err e
 		q.Set("maxwidth", maxWidth)
 	}
 	u.RawQuery = q.Encode()
-	bytes, err := getURL(u.String())
+	bytes, err := getBytes(u.String())
 	if err != nil {
 		return
 	}
@@ -106,23 +130,8 @@ func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err e
 		return
 	}
 
-	// Imgur gallery
 	if response["provider_name"] == "Imgur" && response["type"] == "rich" {
-		bytes, err = getURL(uri)
-		if err != nil {
-			return
-		}
-		html := string(bytes)
-		const idRegex = "<a name=['\"](\\w+)['\"]"
-		matches := regexp.MustCompile(idRegex).FindAllStringSubmatch(html, -1)
-		var images []string
-		for _, matchGroup := range matches {
-			if len(matchGroup) > 1 {
-				galleryURL := fmt.Sprintf("http://i.imgur.com/%s.png", matchGroup[1])
-				images = append(images, e.imageMarkup(galleryURL))
-			}
-		}
-		return fmt.Sprintln(strings.Join(images, "<br/><br/>")), nil
+		return e.embedImgurGallery(uri)
 	}
 
 	if html, ok := response["html"]; ok {
