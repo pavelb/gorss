@@ -97,7 +97,7 @@ func oembed(mustMatch string, endpoint string, uri string, args *map[string]stri
 	}
 
 	if html, ok := response["html"]; ok {
-		return html.(string), nil
+		return strings.Replace(html.(string), "http:", "", -1), nil
 	}
 	if resType, ok := response["type"]; ok {
 		switch resType {
