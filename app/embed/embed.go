@@ -62,6 +62,24 @@ func (e *Embedder) embedImgurGalleryImage(url string) (markup string, err error)
 	return e.embedExtensionlessImage(strings.Replace(url, "/gallery", "", 1))
 }
 
+func (e *Embedder) embedQuickmeme(url string) (markup string, err error) {
+	matched, err := regexp.MatchString("quickmeme.com", url)
+	if err != nil || !matched {
+		return
+	}
+	bytes, err := getURL(url)
+	if err != nil {
+		return
+	}
+	html := string(bytes)
+	const idRegex = "id=\"img\".*src=\"(.*)\""
+	matchGroup := regexp.MustCompile(idRegex).FindStringSubmatch(html)
+	if len(matchGroup) > 1 {
+		markup = e.imageMarkup(matchGroup[1])
+	}
+	return
+}
+
 func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err error) {
 	matched, err := regexp.MatchString(mustMatch, uri)
 	if err != nil || !matched {
@@ -99,8 +117,10 @@ func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err e
 		matches := regexp.MustCompile(idRegex).FindAllStringSubmatch(html, -1)
 		var images []string
 		for _, matchGroup := range matches {
-			galleryURL := fmt.Sprintf("http://i.imgur.com/%s.png", matchGroup[1])
-			images = append(images, e.imageMarkup(galleryURL))
+			if len(matchGroup) > 1 {
+				galleryURL := fmt.Sprintf("http://i.imgur.com/%s.png", matchGroup[1])
+				images = append(images, e.imageMarkup(galleryURL))
+			}
 		}
 		return fmt.Sprintln(strings.Join(images, "<br/><br/>")), nil
 	}
@@ -152,6 +172,7 @@ func (e *Embedder) embed(url string) string {
 		e.embedImage,
 		e.embedExtensionlessImage,
 		e.embedImgurGalleryImage,
+		e.embedQuickmeme,
 	}
 	e.addOembedStrategies(&strategies)
 
