@@ -38,19 +38,13 @@ func getURL(url string) (bytes []byte, err error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func newRSSItem(jsonItem *JSONItem, cache *cache.LRUS) *rss.Item {
+func newRSSItem(jsonItem *JSONItem, embedder *embed.Embedder) *rss.Item {
 	comments := "http://reddit.com" + jsonItem.Permalink
-
-	args := &map[string]string{
-		"EmbedlyAPIKey": "8b02b918d50e4e33b9152d62985d6241",
-		"maxWidth":      "768",
-	}
 	description := fmt.Sprintf(
-		"%s<br/><a href='%s'>Comments</a>",
-		embed.GetMarkup(jsonItem.Url, args, cache),
+		"%s<br/><br/><a href='%s'>Comments</a>",
+		embedder.Embed(jsonItem.Url),
 		comments,
 	)
-
 	return &rss.Item{
 		Title:       jsonItem.Title,
 		Link:        jsonItem.Url,
@@ -71,7 +65,7 @@ func newJSONFeed(subreddit string, limit int) (jsonFeed *JSONFeed, err error) {
 	return
 }
 
-func newRSSFeed(subreddit string, limit int, cache *cache.LRUS) (feed *rss.Feed, err error) {
+func newRSSFeed(subreddit string, limit int, embedder *embed.Embedder) (feed *rss.Feed, err error) {
 	jsonFeed, err := newJSONFeed(subreddit, limit)
 	if err != nil {
 		return
@@ -93,7 +87,7 @@ func newRSSFeed(subreddit string, limit int, cache *cache.LRUS) (feed *rss.Feed,
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			feed.Channel.Items[i] = newRSSItem(&jsonFeed.Data.Children[i].Data, cache)
+			feed.Channel.Items[i] = newRSSItem(&jsonFeed.Data.Children[i].Data, embedder)
 		}(i)
 	}
 	wg.Wait()
@@ -117,7 +111,11 @@ func (c Reddit) Feed(r string) revel.Result {
 	if err != nil {
 		return Html(fmt.Sprint(err))
 	}
-	feed, err := newRSSFeed(r, 100, cache)
+	embedder := embed.NewEmbedder(cache, map[string]string{
+		"EmbedlyAPIKey": "8b02b918d50e4e33b9152d62985d6241",
+		"maxWidth":      "768",
+	})
+	feed, err := newRSSFeed(r, 100, embedder)
 	if err != nil {
 		return Html(fmt.Sprint(err))
 	}

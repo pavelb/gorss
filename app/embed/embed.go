@@ -11,9 +11,16 @@ import (
 	"strings"
 )
 
-// Check out http://noembed.com/
+type Embedder struct {
+	cache *cache.LRUS
+	args  map[string]string
+}
 
-type Strategy func(string, *map[string]string) (string, error)
+type strategy func(string) (string, error)
+
+func NewEmbedder(cache *cache.LRUS, args map[string]string) *Embedder {
+	return &Embedder{cache, args}
+}
 
 func getURL(url string) (bytes []byte, err error) {
 	resp, err := http.Get(url)
@@ -24,36 +31,38 @@ func getURL(url string) (bytes []byte, err error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func imageMarkup(url string) string {
+func (e *Embedder) imageMarkup(url string) string {
 	return fmt.Sprintf("<img style='max-width:100%%' src='%s'/>", url)
 }
 
-func embedImage(url string, args *map[string]string) (markup string, err error) {
+func (e *Embedder) embedImage(url string) (markup string, err error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
-	if header, ok := resp.Header["Content-Type"]; ok {
-		for _, mimeType := range header {
-			const prefix = "image"
-			if len(mimeType) >= len(prefix) && mimeType[:len(prefix)] == prefix {
-				return imageMarkup(url), nil
-			}
+	header, ok := resp.Header["Content-Type"];
+	if !ok {
+		return
+	}
+	for _, mimeType := range header {
+		const prefix = "image"
+		if len(mimeType) >= len(prefix) && mimeType[:len(prefix)] == prefix {
+			return e.imageMarkup(url), nil
 		}
 	}
 	return
 }
 
-func embedExtensionlessImage(url string, args *map[string]string) (markup string, err error) {
-	return embedImage(strings.TrimRight(url, "/")+".png", args)
+func (e *Embedder) embedExtensionlessImage(url string) (markup string, err error) {
+	return e.embedImage(strings.TrimRight(url, "/") + ".png")
 }
 
-func embedImgurGalleryImage(url string, args *map[string]string) (markup string, err error) {
-	return embedExtensionlessImage(strings.Replace(url, "/gallery", "", 1), args)
+func (e *Embedder) embedImgurGalleryImage(url string) (markup string, err error) {
+	return e.embedExtensionlessImage(strings.Replace(url, "/gallery", "", 1))
 }
 
-func oembed(mustMatch string, endpoint string, uri string, args *map[string]string) (markup string, err error) {
+func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err error) {
 	matched, err := regexp.MatchString(mustMatch, uri)
 	if err != nil || !matched {
 		return
@@ -65,7 +74,7 @@ func oembed(mustMatch string, endpoint string, uri string, args *map[string]stri
 	q := u.Query()
 	q.Set("format", "json")
 	q.Set("url", uri)
-	if maxWidth, ok := (*args)["maxWidth"]; ok {
+	if maxWidth, ok := e.args["maxWidth"]; ok {
 		q.Set("maxwidth", maxWidth)
 	}
 	u.RawQuery = q.Encode()
@@ -91,7 +100,7 @@ func oembed(mustMatch string, endpoint string, uri string, args *map[string]stri
 		var images []string
 		for _, matchGroup := range matches {
 			galleryURL := fmt.Sprintf("http://i.imgur.com/%s.png", matchGroup[1])
-			images = append(images, imageMarkup(galleryURL))
+			images = append(images, e.imageMarkup(galleryURL))
 		}
 		return fmt.Sprintln(strings.Join(images, "<br/><br/>")), nil
 	}
@@ -103,7 +112,7 @@ func oembed(mustMatch string, endpoint string, uri string, args *map[string]stri
 		switch resType {
 		case "photo":
 			if resUrl, ok := response["url"]; ok {
-				return imageMarkup(resUrl.(string)), nil
+				return e.imageMarkup(resUrl.(string)), nil
 			}
 		case "link":
 			if description, ok := response["description"]; ok {
@@ -114,7 +123,7 @@ func oembed(mustMatch string, endpoint string, uri string, args *map[string]stri
 	return
 }
 
-func addOembedStrategies(strategies *[]Strategy, args *map[string]string) {
+func (e *Embedder) addOembedStrategies(strategies *[]strategy) {
 	providers := map[string]string{
 		"http://api.imgur.com/oembed":             "imgur",
 		"http://www.youtube.com/oembed":           "youtu",
@@ -126,28 +135,28 @@ func addOembedStrategies(strategies *[]Strategy, args *map[string]string) {
 		"http://vimeo.com/api/oembed.json":        "vimeo",
 		"http://www.collegehumor.com/oembed.json": "collegehumor",
 	}
-	if apiKey, ok := (*args)["EmbedlyAPIKey"]; ok {
+	if apiKey, ok := e.args["EmbedlyAPIKey"]; ok {
 		providers["http://api.embed.ly/1/oembed?key="+apiKey] = ""
 	}
 	for endpoint, mustMatch := range providers {
-		*strategies = append(*strategies, func(mustMatch string, endpoint string) Strategy {
-			return func(url string, args *map[string]string) (markup string, err error) {
-				return oembed(mustMatch, endpoint, url, args)
+		*strategies = append(*strategies, func(mustMatch, endpoint string) strategy {
+			return func(url string) (markup string, err error) {
+				return e.oembed(mustMatch, endpoint, url)
 			}
 		}(mustMatch, endpoint))
 	}
 }
 
-func getMarkup(url string, args *map[string]string) string {
-	strategies := []Strategy{
-		embedImage,
-		embedExtensionlessImage,
-		embedImgurGalleryImage,
+func (e *Embedder) embed(url string) string {
+	strategies := []strategy{
+		e.embedImage,
+		e.embedExtensionlessImage,
+		e.embedImgurGalleryImage,
 	}
-	addOembedStrategies(&strategies, args)
+	e.addOembedStrategies(&strategies)
 
-	for _, strategy := range strategies {
-		markup, err := strategy(url, args)
+	for _, fn := range strategies {
+		markup, err := fn(url)
 		if err != nil {
 			fmt.Sprintln("Error during getMarkup('%s'): %s", url, err)
 		} else if markup != "" {
@@ -157,16 +166,16 @@ func getMarkup(url string, args *map[string]string) string {
 	return "..."
 }
 
-func GetMarkup(url string, args *map[string]string, cache *cache.LRUS) string {
-	bytes, err := json.Marshal(args)
+func (e *Embedder) Embed(url string) string {
+	bytes, err := json.Marshal(e.args)
 	if err != nil {
 		return fmt.Sprint(err)
 	}
 	key := url + string(bytes)
-	if description, ok := cache.Get(key); ok {
+	if description, ok := e.cache.Get(key); ok {
 		return description
 	}
-	description := getMarkup(url, args)
-	cache.Set(key, description)
+	description := e.embed(url)
+	e.cache.Set(key, description)
 	return description
 }
