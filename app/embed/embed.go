@@ -1,25 +1,34 @@
 package embed
 
 import (
+	"GoRSS/app/cache"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"regexp"
-	"GoRSS/app/cache"
 	"strings"
 )
 
 type Embedder struct {
-	cache *cache.LRUS
-	args  map[string]string
+	cache      *cache.LRUS
+	args       map[string]string
+	strategies []strategy
 }
 
 type strategy func(string) (string, error)
 
 func NewEmbedder(cache *cache.LRUS, args map[string]string) *Embedder {
-	return &Embedder{cache, args}
+	e := &Embedder{cache: cache, args: args}
+	e.strategies = []strategy{
+		e.embedImage,
+		e.embedExtensionlessImage,
+		e.embedImgurGalleryImage,
+		e.embedQuickmeme,
+	}
+	e.addOembedStrategies()
+	return e
 }
 
 func getBytes(url string) (bytes []byte, err error) {
@@ -49,7 +58,7 @@ func (e *Embedder) embedImage(url string) (markup string, err error) {
 		return
 	}
 	defer resp.Body.Close()
-	header, ok := resp.Header["Content-Type"];
+	header, ok := resp.Header["Content-Type"]
 	if !ok {
 		return
 	}
@@ -152,7 +161,7 @@ func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err e
 	return
 }
 
-func (e *Embedder) addOembedStrategies(strategies *[]strategy) {
+func (e *Embedder) addOembedStrategies() {
 	providers := map[string]string{
 		"http://api.imgur.com/oembed":             "imgur",
 		"http://www.youtube.com/oembed":           "youtu",
@@ -168,7 +177,7 @@ func (e *Embedder) addOembedStrategies(strategies *[]strategy) {
 		providers["http://api.embed.ly/1/oembed?key="+apiKey] = ""
 	}
 	for endpoint, mustMatch := range providers {
-		*strategies = append(*strategies, func(mustMatch, endpoint string) strategy {
+		e.strategies = append(e.strategies, func(mustMatch, endpoint string) strategy {
 			return func(url string) (markup string, err error) {
 				return e.oembed(mustMatch, endpoint, url)
 			}
@@ -177,15 +186,7 @@ func (e *Embedder) addOembedStrategies(strategies *[]strategy) {
 }
 
 func (e *Embedder) embed(url string) string {
-	strategies := []strategy{
-		e.embedImage,
-		e.embedExtensionlessImage,
-		e.embedImgurGalleryImage,
-		e.embedQuickmeme,
-	}
-	e.addOembedStrategies(&strategies)
-
-	for _, fn := range strategies {
+	for _, fn := range e.strategies {
 		markup, err := fn(url)
 		if err != nil {
 			fmt.Sprintln("Error during getMarkup('%s'): %s", url, err)
