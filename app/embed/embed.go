@@ -84,16 +84,20 @@ func (e *Embedder) embedImgurGallery(url string) (markup string, err error) {
 	if err != nil {
 		return
 	}
-	const idRegex = "<a name=['\"](\\w+)['\"]"
+	const idRegex = "<div class=\"image\" id=\"(\\w+)\">[^>]*>([^<]*)<"
 	matches := regexp.MustCompile(idRegex).FindAllStringSubmatch(html, -1)
-	var images []string
+	var partials []string
 	for _, matchGroup := range matches {
-		if len(matchGroup) > 1 {
-			galleryURL := fmt.Sprintf("http://i.imgur.com/%s.png", matchGroup[1])
-			images = append(images, e.imageMarkup(galleryURL))
+		if len(matchGroup) < 3 {
+			continue
 		}
+		imageID := matchGroup[1]
+		heading := matchGroup[2]
+		imageURL := fmt.Sprintf("http://i.imgur.com/%s.png", imageID)
+		partialMarkup := fmt.Sprintf("%s<br/><br/>%s", heading, e.imageMarkup(imageURL))
+		partials = append(partials, partialMarkup)
 	}
-	return strings.Join(images, "<br/><br/>"), nil
+	return strings.Join(partials, "<br/><br/>"), nil
 }
 
 func (e *Embedder) embedQuickmeme(url string) (markup string, err error) {
