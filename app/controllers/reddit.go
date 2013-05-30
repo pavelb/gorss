@@ -15,10 +15,12 @@ import (
 
 type JSONFeed struct {
 	Data struct {
-		Children []struct {
-			Data JSONItem
-		}
+		Children []JSONChild
 	}
+}
+
+type JSONChild struct {
+	Data JSONItem
 }
 
 type JSONItem struct {
@@ -27,6 +29,7 @@ type JSONItem struct {
 	Description string
 	Created_utc float64
 	Permalink   string
+	Over_18	    bool
 }
 
 func getURL(url string) (bytes []byte, err error) {
@@ -65,11 +68,22 @@ func newJSONFeed(subreddit string, limit int) (jsonFeed *JSONFeed, err error) {
 	return
 }
 
+func (j *JSONFeed) filterNSFW() {
+	var children []JSONChild
+	for _, child := range j.Data.Children {
+		if !child.Data.Over_18 {
+			children = append(children, child)
+		}
+	}
+	j.Data.Children = children
+}
+
 func newRSSFeed(subreddit string, limit int, embedder *embed.Embedder) (feed *rss.Feed, err error) {
 	jsonFeed, err := newJSONFeed(subreddit, limit)
 	if err != nil {
 		return
 	}
+	jsonFeed.filterNSFW()
 
 	feed = &rss.Feed{
 		Version: 2.0,
