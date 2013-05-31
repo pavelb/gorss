@@ -1,14 +1,14 @@
 package controllers
 
 import (
+	"GoRSS/app/cache"
+	"GoRSS/app/embed"
+	"GoRSS/app/rss"
 	"encoding/json"
 	"fmt"
 	"github.com/robfig/revel"
 	"io/ioutil"
 	"net/http"
-	"GoRSS/app/cache"
-	"GoRSS/app/embed"
-	"GoRSS/app/rss"
 	"sync"
 	"time"
 )
@@ -29,7 +29,7 @@ type JSONItem struct {
 	Description string
 	Created_utc float64
 	Permalink   string
-	Over_18	    bool
+	Over_18     bool
 }
 
 func getURL(url string) (bytes []byte, err error) {
