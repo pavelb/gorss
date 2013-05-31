@@ -1,7 +1,6 @@
 package embed
 
 import (
-	"GoRSS/app/cache"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,15 +10,20 @@ import (
 	"strings"
 )
 
+type stringCache interface {
+	Set(string, string)
+	Get(string) (string, bool)
+}
+
 type Embedder struct {
-	cache      *cache.LRUS
+	cache      stringCache
 	args       map[string]string
 	strategies []strategy
 }
 
 type strategy func(string) (string, error)
 
-func NewEmbedder(cache *cache.LRUS, args map[string]string) *Embedder {
+func NewEmbedder(cache stringCache, args map[string]string) *Embedder {
 	e := &Embedder{cache: cache, args: args}
 	e.strategies = []strategy{
 		e.embedImage,
