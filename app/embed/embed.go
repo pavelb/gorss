@@ -101,7 +101,7 @@ func (e *Embedder) embedImgurGallery(url string) (markup string, err error) {
 }
 
 func (e *Embedder) embedQuickmeme(url string) (markup string, err error) {
-	matched, err := regexp.MatchString("quickmeme.com", url)
+	matched, err := regexp.MatchString("(quickmeme.com|qkme.me)", url)
 	if err != nil || !matched {
 		return
 	}
