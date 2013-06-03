@@ -88,17 +88,12 @@ func (e *Embedder) embedImgurGallery(url string) (markup string, err error) {
 	if err != nil {
 		return
 	}
-	const idRegex = "<div class=\"image\" id=\"(\\w+)\">[^>]*>([^<]*)<"
+	const idRegex = "<a name=['\"](\\w+)['\"]"
 	matches := regexp.MustCompile(idRegex).FindAllStringSubmatch(html, -1)
 	var partials []string
 	for _, matchGroup := range matches {
 		if len(matchGroup) > 1 {
 			partialMarkup := "http://i.imgur.com/" + matchGroup[1] + ".png"
-			if len(matchGroup) > 2 {
-				if heading := strings.TrimSpace(matchGroup[2]); heading != "" {
-					partialMarkup = heading + "<br/><br/>" + partialMarkup
-				}
-			}
 			partials = append(partials, partialMarkup)
 		}
 	}
