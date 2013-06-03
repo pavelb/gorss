@@ -93,8 +93,8 @@ func (e *Embedder) embedImgurGallery(url string) (markup string, err error) {
 	var partials []string
 	for _, matchGroup := range matches {
 		if len(matchGroup) > 1 {
-			partialMarkup := "http://i.imgur.com/" + matchGroup[1] + ".png"
-			partials = append(partials, partialMarkup)
+			imgURL := "http://i.imgur.com/" + matchGroup[1] + ".png"
+			partials = append(partials, e.imageMarkup(imgURL))
 		}
 	}
 	return strings.Join(partials, "<br/><br/>"), nil
