@@ -24,7 +24,7 @@ type JSONChild struct {
 }
 
 type JSONItem struct {
-	Url         string
+	URL         string
 	Title       string
 	Description string
 	Created_utc float64
@@ -45,15 +45,15 @@ func newRSSItem(jsonItem *JSONItem, embedder *embed.Embedder) *rss.Item {
 	comments := "http://reddit.com" + jsonItem.Permalink
 	description := fmt.Sprintf(
 		"%s<br/><br/><a href='%s'>Comments</a>",
-		embedder.Embed(jsonItem.Url),
+		embedder.Embed(jsonItem.URL),
 		comments,
 	)
 	return &rss.Item{
 		Title:       jsonItem.Title,
-		Link:        jsonItem.Url,
+		Link:        jsonItem.URL,
 		Description: description,
 		Comments:    comments,
-		GUID:        jsonItem.Url,
+		GUID:        jsonItem.URL,
 		PubDate:     time.Unix(int64(jsonItem.Created_utc), 0).Format(time.RFC822),
 	}
 }
@@ -112,9 +112,9 @@ type Reddit struct {
 	*revel.Controller
 }
 
-type Html string
+type HTML string
 
-func (r Html) Apply(req *revel.Request, resp *revel.Response) {
+func (r HTML) Apply(req *revel.Request, resp *revel.Response) {
 	resp.WriteHeader(http.StatusOK, "text/html")
 	resp.Out.Write([]byte(r))
 }
@@ -123,7 +123,7 @@ func (c Reddit) Feed(r string) revel.Result {
 	const embedCacheFile = "embedCache"
 	cache, err := cache.LoadLRUS(100*1024, embedCacheFile)
 	if err != nil {
-		return Html(fmt.Sprint(err))
+		return HTML(fmt.Sprint(err))
 	}
 	embedder := embed.NewEmbedder(cache, map[string]string{
 		"EmbedlyAPIKey": "8b02b918d50e4e33b9152d62985d6241",
@@ -131,11 +131,11 @@ func (c Reddit) Feed(r string) revel.Result {
 	})
 	feed, err := newRSSFeed(r, 100, embedder)
 	if err != nil {
-		return Html(fmt.Sprint(err))
+		return HTML(fmt.Sprint(err))
 	}
 	err = cache.Save(embedCacheFile)
 	if err != nil {
-		return Html(fmt.Sprint(err))
+		return HTML(fmt.Sprint(err))
 	}
 	return c.RenderXml(feed)
 }

@@ -158,8 +158,8 @@ func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err e
 	if resType, ok := response["type"]; ok {
 		switch resType {
 		case "photo":
-			if resUrl, ok := response["url"]; ok {
-				return e.imageMarkup(resUrl.(string)), nil
+			if resURL, ok := response["url"]; ok {
+				return e.imageMarkup(resURL.(string)), nil
 			}
 		case "link":
 			if description, ok := response["description"]; ok {
