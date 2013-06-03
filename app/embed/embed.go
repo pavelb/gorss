@@ -92,14 +92,15 @@ func (e *Embedder) embedImgurGallery(url string) (markup string, err error) {
 	matches := regexp.MustCompile(idRegex).FindAllStringSubmatch(html, -1)
 	var partials []string
 	for _, matchGroup := range matches {
-		if len(matchGroup) < 3 {
-			continue
+		if len(matchGroup) > 1 {
+			partialMarkup := "http://i.imgur.com/" + matchGroup[1] + ".png"
+			if len(matchGroup) > 2 {
+				if heading := strings.TrimSpace(matchGroup[2]); heading != "" {
+					partialMarkup = heading + "<br/><br/>" + partialMarkup
+				}
+			}
+			partials = append(partials, partialMarkup)
 		}
-		imageID := matchGroup[1]
-		heading := matchGroup[2]
-		imageURL := fmt.Sprintf("http://i.imgur.com/%s.png", imageID)
-		partialMarkup := fmt.Sprintf("%s<br/><br/>%s", heading, e.imageMarkup(imageURL))
-		partials = append(partials, partialMarkup)
 	}
 	return strings.Join(partials, "<br/><br/>"), nil
 }
