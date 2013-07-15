@@ -13,17 +13,17 @@ import (
 	"time"
 )
 
-type JSONFeed struct {
+type redditJSONFeed struct {
 	Data struct {
-		Children []JSONChild
+		Children []redditJSONChild
 	}
 }
 
-type JSONChild struct {
-	Data JSONItem
+type redditJSONChild struct {
+	Data redditJSONItem
 }
 
-type JSONItem struct {
+type redditJSONItem struct {
 	URL         string
 	Title       string
 	Description string
@@ -41,7 +41,7 @@ func getURL(url string) (bytes []byte, err error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func newRSSItem(jsonItem *JSONItem, embedder *embed.Embedder) *rss.Item {
+func newRSSItem(jsonItem *redditJSONItem, embedder *embed.Embedder) *rss.Item {
 	comments := "http://reddit.com" + jsonItem.Permalink
 	description := fmt.Sprintf(
 		"%s<br/><br/><a href='%s'>Comments</a>",
@@ -58,18 +58,18 @@ func newRSSItem(jsonItem *JSONItem, embedder *embed.Embedder) *rss.Item {
 	}
 }
 
-func newJSONFeed(subreddit string, limit int) (jsonFeed *JSONFeed, err error) {
+func getRedditJSONFeed(subreddit string, limit int) (jsonFeed *redditJSONFeed, err error) {
 	bytes, err := getURL(fmt.Sprintf("http://www.reddit.com/r/%s.json?limit=%d", subreddit, limit))
 	if err != nil {
 		return
 	}
-	jsonFeed = new(JSONFeed)
+	jsonFeed = new(redditJSONFeed)
 	err = json.Unmarshal(bytes, jsonFeed)
 	return
 }
 
-func (j *JSONFeed) filterNSFW() {
-	var children []JSONChild
+func (j *redditJSONFeed) filterNSFW() {
+	var children []redditJSONChild
 	for _, child := range j.Data.Children {
 		if !child.Data.Over_18 {
 			children = append(children, child)
@@ -78,11 +78,12 @@ func (j *JSONFeed) filterNSFW() {
 	j.Data.Children = children
 }
 
-func newRSSFeed(subreddit string, limit int, embedder *embed.Embedder) (feed *rss.Feed, err error) {
-	jsonFeed, err := newJSONFeed(subreddit, limit)
+func getRedditXMLFeed(subreddit string, limit int, embedder *embed.Embedder) (feed *rss.Feed, err error) {
+	jsonFeed, err := getRedditJSONFeed(subreddit, limit)
 	if err != nil {
 		return
 	}
+
 	jsonFeed.filterNSFW()
 
 	feed = &rss.Feed{
@@ -129,7 +130,7 @@ func (c Reddit) Feed(r string) revel.Result {
 		"EmbedlyAPIKey": "8b02b918d50e4e33b9152d62985d6241",
 		"maxWidth":      "768",
 	})
-	feed, err := newRSSFeed(r, 100, embedder)
+	feed, err := getRedditXMLFeed(r, 100, embedder)
 	if err != nil {
 		return HTML(fmt.Sprint(err))
 	}
