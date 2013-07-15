@@ -32,6 +32,11 @@ type redditJSONItem struct {
 	Over_18     bool
 }
 
+type stringCache interface {
+	Set(string, string)
+	Get(string) (string, bool)
+}
+
 func getURL(url string) (bytes []byte, err error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -41,21 +46,38 @@ func getURL(url string) (bytes []byte, err error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func newRSSItem(jsonItem *redditJSONItem, embedder *embed.Embedder) *rss.Item {
+func newRSSItem(
+	jsonItem *redditJSONItem,
+	repostCache stringCache,
+	embedder *embed.Embedder,
+) (item *rss.Item) {
+
+	if jsonItem.Over_18 {
+		return nil
+	}
+
 	comments := "http://reddit.com" + jsonItem.Permalink
-	description := fmt.Sprintf(
-		"%s<br/><br/><a href='%s'>Comments</a>",
-		embedder.Embed(jsonItem.URL),
-		comments,
-	)
-	return &rss.Item{
+
+	item = &rss.Item{
 		Title:       jsonItem.Title,
 		Link:        jsonItem.URL,
-		Description: description,
+		Description: fmt.Sprintf(
+			"%s<br/><br/><a href='%s'>Comments</a>",
+			embedder.Embed(jsonItem.URL),
+			comments,
+		),
 		Comments:    comments,
 		GUID:        jsonItem.URL,
 		PubDate:     time.Unix(int64(jsonItem.Created_utc), 0).Format(time.RFC822),
 	}
+
+	if permalink, ok := repostCache.Get(jsonItem.URL); ok && permalink != jsonItem.Permalink {
+		item.Title += " (Repost)"
+		return
+	}
+
+	repostCache.Set(jsonItem.URL, jsonItem.Permalink)
+	return
 }
 
 func getRedditJSONFeed(subreddit string, limit int) (jsonFeed *redditJSONFeed, err error) {
@@ -68,23 +90,17 @@ func getRedditJSONFeed(subreddit string, limit int) (jsonFeed *redditJSONFeed, e
 	return
 }
 
-func (j *redditJSONFeed) filterNSFW() {
-	var children []redditJSONChild
-	for _, child := range j.Data.Children {
-		if !child.Data.Over_18 {
-			children = append(children, child)
-		}
-	}
-	j.Data.Children = children
-}
+func getRedditXMLFeed(
+	subreddit string,
+	limit int,
+	repostCache stringCache,
+	embedder *embed.Embedder,
+) (feed *rss.Feed, err error) {
 
-func getRedditXMLFeed(subreddit string, limit int, embedder *embed.Embedder) (feed *rss.Feed, err error) {
 	jsonFeed, err := getRedditJSONFeed(subreddit, limit)
 	if err != nil {
 		return
 	}
-
-	jsonFeed.filterNSFW()
 
 	feed = &rss.Feed{
 		Version: 2.0,
@@ -102,7 +118,11 @@ func getRedditXMLFeed(subreddit string, limit int, embedder *embed.Embedder) (fe
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			feed.Channel.Items[i] = newRSSItem(&jsonFeed.Data.Children[i].Data, embedder)
+			feed.Channel.Items[i] = newRSSItem(
+				&jsonFeed.Data.Children[i].Data,
+				repostCache,
+				embedder,
+			)
 		}(i)
 	}
 	wg.Wait()
@@ -121,22 +141,37 @@ func (r HTML) Apply(req *revel.Request, resp *revel.Response) {
 }
 
 func (c Reddit) Feed(r string) revel.Result {
+	const repostCacheFile = "repostCache"
 	const embedCacheFile = "embedCache"
-	cache, err := cache.LoadLRUS(100*1024, embedCacheFile)
+
+	repostCache, err := cache.LoadLRUS(100*1024, repostCacheFile)
 	if err != nil {
 		return HTML(fmt.Sprint(err))
 	}
-	embedder := embed.NewEmbedder(cache, map[string]string{
+
+	embedCache, err := cache.LoadLRUS(100*1024, embedCacheFile)
+	if err != nil {
+		return HTML(fmt.Sprint(err))
+	}
+	embedder := embed.NewEmbedder(embedCache, map[string]string{
 		"EmbedlyAPIKey": "8b02b918d50e4e33b9152d62985d6241",
 		"maxWidth":      "768",
 	})
-	feed, err := getRedditXMLFeed(r, 100, embedder)
+
+	feed, err := getRedditXMLFeed(r, 100, repostCache, embedder)
 	if err != nil {
 		return HTML(fmt.Sprint(err))
 	}
-	err = cache.Save(embedCacheFile)
+
+	err = repostCache.Save(repostCacheFile)
 	if err != nil {
 		return HTML(fmt.Sprint(err))
 	}
+
+	err = embedCache.Save(embedCacheFile)
+	if err != nil {
+		return HTML(fmt.Sprint(err))
+	}
+
 	return c.RenderXml(feed)
 }
