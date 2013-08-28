@@ -12,7 +12,7 @@ import (
 )
 
 func getHashDirect(url string) (hash string, err error) {
-	fmt.Println("fetching: " + url)
+	fmt.Println("hashing " + url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return
@@ -27,6 +27,7 @@ func getHashDirect(url string) (hash string, err error) {
 	}
 
 	hash = fmt.Sprintf("%x", h.Sum(nil))
+	fmt.Println("hashed " + url)
 	return
 }
 
@@ -71,59 +72,61 @@ func getRecentItemsCachePath(guid string, feed *rss.Feed) string {
 }
 
 func Dedup(feed *rss.Feed, guid string) (err error) {
-	const hashCachePath = "dedup-hash-cache"
-	hashCache, err := cache.LoadLRUS(100*1024, hashCachePath)
+	// Hash item links, cache results.
+	const urlToHashCachePath = "dedup-hash-cache"
+	urlToHashCache, err := cache.LoadLRUS(100000, urlToHashCachePath)
 	if err != nil {
 		return
 	}
-	hashes := hashItems(feed.Channel.Items, hashCache)
-	err = hashCache.Save(hashCachePath)
+	hashes := hashItems(feed.Channel.Items, urlToHashCache)
+	err = urlToHashCache.Save(urlToHashCachePath)
 	if err != nil {
 		return
 	}
 
+	// Init served links hash caches.
 	allItemsCachePath := getAllItemsCachePath(guid)
+	allItemsCache, err := cache.LoadLRUS(100000, allItemsCachePath)
+	if err != nil {
+		return
+	}
 	recentItemsCachePath := getRecentItemsCachePath(guid, feed)
-
-	allItemsCache, err := cache.LoadLRUS(100*1024, allItemsCachePath)
+	recentItemsCache, err := cache.LoadLRUS(100000, recentItemsCachePath)
 	if err != nil {
 		return
 	}
-	recentItemsCache, err := cache.LoadLRUS(1024, recentItemsCachePath)
-	if err != nil {
-		return
-	}
-	newItemsCache := make(map[string]string)
+	newItemsCache := cache.NewLRUS(100000)
 
+	// Prune duplicate links.
 	var rv []*rss.Item
 	for i, item := range feed.Channel.Items {
 		hash := hashes[i]
 
 		fmt.Print(item.Link + ": ")
 
-		if _, ok := recentItemsCache.Get(hash); ok {
-			fmt.Println("found in recent items, (recently) new")
+		if _, ok := newItemsCache.Get(hash); ok {
+			fmt.Println("found in new feed, duplicate")
+			continue
+		} else if _, ok := recentItemsCache.Get(hash); ok {
+			fmt.Println("found in last feed, new")
 		} else if _, ok := allItemsCache.Get(hash); ok {
-			fmt.Println("not in recent but found in all, duplicate")
+			fmt.Println("found in global feed, duplicate")
 			continue
 		} else {
-			fmt.Println("never seen before, new")
+			fmt.Println("not found in any feed, new")
 			recentItemsCache.Set(hash, "")
 			allItemsCache.Set(hash, "")
 		}
 
-		if _, ok := newItemsCache[hash]; ok {
-			fmt.Println("found in current feed, duplicate")
-			continue
-		}
-		newItemsCache[hash] = ""
+		newItemsCache.Set(hash, "")
 		rv = append(rv, item)
 	}
 	feed.Channel.Items = rv
 
+	// Save served links hash caches.
 	err = allItemsCache.Save(allItemsCachePath)
 	if err != nil {
 		return
 	}
-	return recentItemsCache.Save(recentItemsCachePath)
+	return newItemsCache.Save(recentItemsCachePath)
 }
