@@ -3,19 +3,16 @@ package dedup
 import (
 	"crypto/md5"
 	"fmt"
-	// "github.com/pavelb/gorss/app/cache"
-	"encoding/gob"
+	"github.com/pavelb/gorss/app/cache"
 	"github.com/pavelb/gorss/app/rss"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"sync"
 )
 
-func fingerprint_(url string) (hash string, err error) {
-	return "123", nil
-
+func getHashDirect(url string) (hash string, err error) {
+	fmt.Println("fetching: " + url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return
@@ -33,102 +30,100 @@ func fingerprint_(url string) (hash string, err error) {
 	return
 }
 
-func save(items []*rss.Item, path string) (err error) {
-	fileHandle, err := os.Create(path)
-	if err != nil {
-		return
+func getHash(url string, cache *cache.LRUS) (hash string, err error) {
+	hash, ok := cache.Get(url)
+	if !ok {
+		hash, err = getHashDirect(url)
+		if err != nil {
+			return
+		}
 	}
-	defer fileHandle.Close()
-	return gob.NewEncoder(fileHandle).Encode(items)
-}
-
-func load(path string) (items []*rss.Item, err error) {
-	return
-
-	_, err = os.Stat(path)
-	if err != nil {
-		fmt.Println("Stored items not found, returning empty slice.")
-		return items, nil // Return empty slice.
-	}
-
-	fileHandle, err := os.OpenFile(path, os.O_RDONLY, 0600)
-	if err != nil {
-		return
-	}
-	defer fileHandle.Close()
-
-	err = gob.NewDecoder(fileHandle).Decode(&items)
+	cache.Set(url, hash)
 	return
 }
 
-func fingerprintItems(items []*rss.Item) []string {
-	fingerprints := make([]string, len(items))
-
+func hashItems(items []*rss.Item, cache *cache.LRUS) []string {
+	hashes := make([]string, len(items))
 	var wg sync.WaitGroup
 	for i, item := range items {
 		wg.Add(1)
 		go func(i int, item *rss.Item) {
 			defer wg.Done()
-			f, err := fingerprint_(item.Link)
+			f, err := getHash(item.Link, cache)
 			if err != nil {
 				return
 			}
-			fingerprints[i] = f
+			hashes[i] = f
 		}(i, item)
 	}
 	wg.Wait()
-
-	return fingerprints
+	return hashes
 }
 
-func merge(master_items *[]*rss.Item, new_items []*rss.Item) {
-	master_fingerprints := make(map[string]bool)
-	for _, f := range fingerprintItems(*master_items) {
-		if f != "" {
-			master_fingerprints[f] = true
-		}
-	}
-
-	for i, f := range fingerprintItems(new_items) {
-		if _, found := master_fingerprints[f]; !found {
-			*master_items = append(*master_items, new_items[i])
-		}
-	}
+func getAllItemsCachePath(guid string) string {
+	return "dedup-" + guid + "-all-items"
 }
 
-func truncate(items *[]*rss.Item, length int) {
-	index := len(*items) - 1 - length
-	if index >= 0 {
-		*items = (*items)[index:]
-	}
+func getRecentItemsCachePath(guid string, feed *rss.Feed) string {
+	re := regexp.MustCompile("[^a-zA-Z]+")
+	feedGuid := re.ReplaceAllString(feed.Channel.Link, "-")
+	return "dedup-" + guid + "-" + feedGuid
 }
 
 func Dedup(feed *rss.Feed, guid string) (err error) {
-	re := regexp.MustCompile("[^a-zA-Z]+")
-	feedGuid := re.ReplaceAllString(feed.Channel.Link, "-")
-	path := "dedup-last-feed-" + guid + "-" + feedGuid
-
-	items, err := load(path)
+	const hashCachePath = "dedup-hash-cache"
+	hashCache, err := cache.LoadLRUS(100*1024, hashCachePath)
+	if err != nil {
+		return
+	}
+	hashes := hashItems(feed.Channel.Items, hashCache)
+	err = hashCache.Save(hashCachePath)
 	if err != nil {
 		return
 	}
 
-	merge(&items, feed.Channel.Items)
+	allItemsCachePath := getAllItemsCachePath(guid)
+	recentItemsCachePath := getRecentItemsCachePath(guid, feed)
 
-	truncate(&items, 100000)
-	err = save(items, path)
+	allItemsCache, err := cache.LoadLRUS(100*1024, allItemsCachePath)
 	if err != nil {
 		return
 	}
+	recentItemsCache, err := cache.LoadLRUS(1024, recentItemsCachePath)
+	if err != nil {
+		return
+	}
+	newItemsCache := make(map[string]string)
 
-	truncate(&items, 100)
-	feed.Channel.Items = items
+	var rv []*rss.Item
+	for i, item := range feed.Channel.Items {
+		hash := hashes[i]
 
-	// const dedupCacheFile = "embedCache"
-	// embedCache, err := cache.LoadLRUS(100*1024, dedupCacheFile)
-	// if err != nil {
-	// 	return HTML(fmt.Sprint(err))
-	// }
+		fmt.Print(item.Link + ": ")
 
-	return
+		if _, ok := recentItemsCache.Get(hash); ok {
+			fmt.Println("found in recent items, (recently) new")
+		} else if _, ok := allItemsCache.Get(hash); ok {
+			fmt.Println("not in recent but found in all, duplicate")
+			continue
+		} else {
+			fmt.Println("never seen before, new")
+			recentItemsCache.Set(hash, "")
+			allItemsCache.Set(hash, "")
+		}
+
+		if _, ok := newItemsCache[hash]; ok {
+			fmt.Println("found in current feed, duplicate")
+			continue
+		}
+		newItemsCache[hash] = ""
+		rv = append(rv, item)
+	}
+	feed.Channel.Items = rv
+
+	err = allItemsCache.Save(allItemsCachePath)
+	if err != nil {
+		return
+	}
+	return recentItemsCache.Save(recentItemsCachePath)
 }
