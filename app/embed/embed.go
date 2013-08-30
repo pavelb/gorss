@@ -2,6 +2,7 @@ package embed
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -21,7 +22,14 @@ type Embedder struct {
 	strategies []strategy
 }
 
-type strategy func(string) (string, error)
+type EmbedInfo struct {
+	URL  string
+	Html string
+}
+
+type strategy func(string) (EmbedInfo, error)
+
+var strategyWhiffError error = errors.New("No matching strategy.")
 
 func NewEmbedder(cache stringCache, args map[string]string) *Embedder {
 	e := &Embedder{cache: cache, args: args}
@@ -46,44 +54,17 @@ func getBytes(url string) (bytes []byte, err error) {
 
 func getHTML(url string) (html string, err error) {
 	bytes, err := getBytes(url)
-	if err != nil {
-		return
-	}
-	return string(bytes), nil
-}
-
-func (e *Embedder) imageMarkup(url string) string {
-	return fmt.Sprintf("<img style='max-width:100%%' src='%s'/>", url)
-}
-
-func (e *Embedder) embedImage(url string) (markup string, err error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	header, ok := resp.Header["Content-Type"]
-	if !ok {
-		return
-	}
-	for _, mimeType := range header {
-		const prefix = "image"
-		if len(mimeType) >= len(prefix) && mimeType[:len(prefix)] == prefix {
-			return e.imageMarkup(url), nil
-		}
+	if err == nil {
+		html = string(bytes)
 	}
 	return
 }
 
-func (e *Embedder) embedExtensionlessImage(url string) (markup string, err error) {
-	return e.embedImage(strings.TrimRight(url, "/") + ".png")
+func imageMarkup(url string) string {
+	return fmt.Sprintf("<img style='max-width:100%%' src='%s'/>", url)
 }
 
-func (e *Embedder) embedImgurGalleryImage(url string) (markup string, err error) {
-	return e.embedExtensionlessImage(strings.Replace(url, "/gallery", "", 1))
-}
-
-func (e *Embedder) embedImgurGallery(url string) (markup string, err error) {
+func imgurGalleryMarkup(url string) (markup string, err error) {
 	html, err := getHTML(url)
 	if err != nil {
 		return
@@ -94,15 +75,47 @@ func (e *Embedder) embedImgurGallery(url string) (markup string, err error) {
 	for _, matchGroup := range matches {
 		if len(matchGroup) > 1 {
 			imgURL := "http://i.imgur.com/" + matchGroup[1] + ".png"
-			partials = append(partials, e.imageMarkup(imgURL))
+			partials = append(partials, imageMarkup(imgURL))
 		}
 	}
-	return strings.Join(partials, "<br/><br/>"), nil
+	markup = strings.Join(partials, "<br/><br/>")
+	return
 }
 
-func (e *Embedder) embedQuickmeme(url string) (markup string, err error) {
+func (e *Embedder) embedImage(url string) (rv EmbedInfo, err error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if header, ok := resp.Header["Content-Type"]; ok {
+		for _, mimeType := range header {
+			if strings.HasPrefix(mimeType, "image") {
+				rv.URL = url
+				rv.Html = imageMarkup(url)
+				return
+			}
+		}
+	}
+	err = strategyWhiffError
+	return
+}
+
+func (e *Embedder) embedExtensionlessImage(url string) (EmbedInfo, error) {
+	return e.embedImage(strings.TrimRight(url, "/") + ".png")
+}
+
+func (e *Embedder) embedImgurGalleryImage(url string) (EmbedInfo, error) {
+	return e.embedExtensionlessImage(strings.Replace(url, "/gallery", "", 1))
+}
+
+func (e *Embedder) embedQuickmeme(url string) (rv EmbedInfo, err error) {
 	matched, err := regexp.MatchString("(quickmeme.com|qkme.me)", url)
-	if err != nil || !matched {
+	if err != nil {
+		return
+	}
+	if !matched {
+		err = strategyWhiffError
 		return
 	}
 	html, err := getHTML(url)
@@ -112,14 +125,23 @@ func (e *Embedder) embedQuickmeme(url string) (markup string, err error) {
 	const idRegex = "id=\"img\".*src=\"(.*)\""
 	matchGroup := regexp.MustCompile(idRegex).FindStringSubmatch(html)
 	if len(matchGroup) > 1 {
-		markup = e.imageMarkup(matchGroup[1])
+		rv.URL = matchGroup[1]
+		rv.Html = imageMarkup(rv.URL)
+		return
 	}
+	err = strategyWhiffError
 	return
 }
 
-func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err error) {
+func (e *Embedder) oembed(mustMatch, endpoint, uri string) (
+	rv EmbedInfo, err error) {
+
 	matched, err := regexp.MatchString(mustMatch, uri)
-	if err != nil || !matched {
+	if err != nil {
+		return
+	}
+	if !matched {
+		err = strategyWhiffError
 		return
 	}
 	u, err := url.Parse(endpoint)
@@ -143,24 +165,23 @@ func (e *Embedder) oembed(mustMatch, endpoint, uri string) (markup string, err e
 		return
 	}
 
-	if response["provider_name"] == "Imgur" && response["type"] == "rich" {
-		return e.embedImgurGallery(uri)
+	if resURL, ok := response["url"]; ok {
+		rv.URL = resURL.(string)
+	} else {
+		rv.URL = uri
 	}
 
-	if html, ok := response["html"]; ok {
-		return strings.Replace(html.(string), "http:", "", -1), nil
-	}
-	if resType, ok := response["type"]; ok {
-		switch resType {
-		case "photo":
-			if resURL, ok := response["url"]; ok {
-				return e.imageMarkup(resURL.(string)), nil
-			}
-		case "link":
-			if description, ok := response["description"]; ok {
-				return description.(string), nil
-			}
-		}
+	if response["provider_name"] == "Imgur" && response["type"] == "rich" {
+		rv.Html, err = imgurGalleryMarkup(uri)
+	} else if html, ok := response["html"]; ok {
+		// strip "http:" to force relative protocol (hacky)
+		rv.Html = strings.Replace(html.(string), "http:", "", -1)
+	} else if response["type"] == "photo" {
+		rv.Html = imageMarkup(response["url"].(string))
+	} else if description, ok := response["description"]; ok {
+		rv.Html = description.(string)
+	} else {
+		err = strategyWhiffError
 	}
 	return
 }
@@ -169,7 +190,7 @@ func (e *Embedder) addOembedStrategies() {
 	providers := map[string]string{
 		"http://api.imgur.com/oembed":             "imgur",
 		"http://www.youtube.com/oembed":           "youtu",
-		"http://www.flickr.com/services/oembed":   "flickr",
+		"http://www.flickr.com/services/oembed":   "flic",
 		"http://lab.viddler.com/services/oembed":  "viddler",
 		"http://qik.com/api/oembed.json":          "qik",
 		"http://revision3.com/api/oembed":         "revision3",
@@ -182,35 +203,47 @@ func (e *Embedder) addOembedStrategies() {
 	}
 	for endpoint, mustMatch := range providers {
 		e.strategies = append(e.strategies, func(mustMatch, endpoint string) strategy {
-			return func(url string) (markup string, err error) {
+			return func(url string) (rv EmbedInfo, err error) {
 				return e.oembed(mustMatch, endpoint, url)
 			}
 		}(mustMatch, endpoint))
 	}
 }
 
-func (e *Embedder) embed(url string) string {
+func (e *Embedder) embed(url string) (rv EmbedInfo, err error) {
 	for _, fn := range e.strategies {
-		markup, err := fn(url)
-		if err != nil {
+		rv, err = fn(url)
+		if err == nil {
+			return
+		} else if err != strategyWhiffError {
 			fmt.Sprintln("Error during getMarkup('%s'): %s", url, err)
-		} else if markup != "" {
-			return markup
 		}
 	}
-	return "..."
+	err = strategyWhiffError
+	return
 }
 
-func (e *Embedder) Embed(url string) string {
+func (e *Embedder) Embed(url string) (rv EmbedInfo, err error) {
 	bytes, err := json.Marshal(e.args)
 	if err != nil {
-		return fmt.Sprint(err)
+		return
 	}
 	key := url + string(bytes)
-	if description, ok := e.cache.Get(key); ok {
-		return description
+	pack, cacheHit := e.cache.Get(key)
+	if cacheHit {
+		// oof, what a hack
+		pieces := strings.SplitN(pack, " ", 2)
+		if len(pieces) == 2 {
+			rv.URL = pieces[0]
+			rv.Html = pieces[1]
+			return
+		}
 	}
-	description := e.embed(url)
-	e.cache.Set(key, description)
-	return description
+	rv, err = e.embed(url)
+	if err != nil {
+		return
+	}
+	pack = rv.URL + " " + rv.Html
+	e.cache.Set(key, pack)
+	return
 }

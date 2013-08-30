@@ -43,33 +43,35 @@ func getURL(url string) (bytes []byte, err error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func newRSSItem(
-	jsonItem *redditJSONItem,
-	embedder *embed.Embedder,
-) (item *rss.Item) {
+func newRSSItem(jsonItem *redditJSONItem, embedder *embed.Embedder) *rss.Item {
 	if jsonItem.Over_18 {
 		return nil
 	}
 
-	embedableLink := embedder.Embed(jsonItem.URL)
-	comments := "http://www.reddit.com" + jsonItem.Permalink
+	rv := new(rss.Item)
+	rv.Title = jsonItem.Title
+	rv.Comments = "http://www.reddit.com" + jsonItem.Permalink
 
-	return &rss.Item{
-		Title: jsonItem.Title,
-		Link:  jsonItem.URL,
-		Description: fmt.Sprintf(
-			"%s<br/><br/><a href='%s'>Comments</a>",
-			embedableLink,
-			comments,
-		),
-		Comments: comments,
-		GUID:     embedableLink,
-		PubDate:  time.Unix(int64(jsonItem.Created_utc), 0).Format(time.RFC822),
+	embedInfo, err := embedder.Embed(jsonItem.URL)
+	if err == nil {
+		rv.Link = embedInfo.URL
+		rv.Description = embedInfo.Html
+	} else {
+		rv.Link = jsonItem.URL
+		rv.Description = err.Error()
 	}
+	rv.Description += "<br/><br/><a href='" + rv.Comments + "'>Comments</a>"
+	if rv.Link != jsonItem.URL {
+		rv.Description += " <a href='" + jsonItem.URL + "'>Original</a>"
+	}
+
+	rv.PubDate = time.Unix(int64(jsonItem.Created_utc), 0).Format(time.RFC822)
+	return rv
 }
 
 func getRedditJSONFeed(subreddit string) (jsonFeed *redditJSONFeed, err error) {
-	bytes, err := getURL(fmt.Sprintf("http://www.reddit.com/r/%s.json?limit=100", subreddit))
+	const urlTpl = "http://www.reddit.com/r/%s.json?limit=100"
+	bytes, err := getURL(fmt.Sprintf(urlTpl, subreddit))
 	if err != nil {
 		return
 	}
@@ -78,10 +80,8 @@ func getRedditJSONFeed(subreddit string) (jsonFeed *redditJSONFeed, err error) {
 	return
 }
 
-func getRedditXMLFeed(
-	subreddit string,
-	embedder *embed.Embedder,
-) (feed *rss.Feed, err error) {
+func getRedditXMLFeed(subreddit string, embedder *embed.Embedder) (
+	feed *rss.Feed, err error) {
 
 	jsonFeed, err := getRedditJSONFeed(subreddit)
 	if err != nil {
