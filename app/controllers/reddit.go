@@ -62,7 +62,8 @@ func newRSSItem(jsonItem *redditJSONItem, embedder *embed.Embedder) *rss.Item {
 	}
 	rv.Description += "<br/><br/><a href='" + rv.Comments + "'>Comments</a>"
 	if rv.Link != jsonItem.URL {
-		rv.Description += " <a href='" + jsonItem.URL + "'>Original</a>"
+		rv.Description += "&nbsp;&nbsp;&nbsp;&nbsp;"
+		rv.Description += "<a href='" + jsonItem.URL + "'>Original</a>"
 	}
 
 	rv.PubDate = time.Unix(int64(jsonItem.Created_utc), 0).Format(time.RFC822)
