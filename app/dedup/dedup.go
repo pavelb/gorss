@@ -106,15 +106,15 @@ func Dedup(feed *rss.Feed, guid string) (err error) {
 
 		if _, ok := newItemsCache.Get(hash); ok {
 			fmt.Println("found in new feed, duplicate")
-			item.Title = "[In-Feed Repost] " + item.Title
-			// continue
+			// item.Title = "[In-Feed Repost] " + item.Title
+			continue
 		} else if _, ok := recentItemsCache.Get(hash); ok {
 			fmt.Println("found in last feed, new")
 			newItemsCache.Set(hash, "")
 		} else if _, ok := allItemsCache.Get(hash); ok {
 			fmt.Println("found in global feed, duplicate")
-			item.Title = "[Repost] " + item.Title
-			// continue
+			// item.Title = "[Repost] " + item.Title
+			continue
 		} else {
 			fmt.Println("not found in any feed, new")
 			allItemsCache.Set(hash, "")
