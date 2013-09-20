@@ -157,17 +157,17 @@ func (c Reddit) Feed(r string) revel.Result {
 
 	feed, err := getRedditXMLFeed(r, embedder)
 	if err != nil {
-		return HTML(fmt.Sprint(err))
+		return HTML("Cant get xml feed: " + fmt.Sprint(err))
 	}
 
 	err = dedup.Dedup(feed, guid)
 	if err != nil {
-		return HTML(fmt.Sprint(err))
+		return HTML("Cant dedup: " + fmt.Sprint(err))
 	}
 
 	err = embedCache.Save(embedCacheFile)
 	if err != nil {
-		return HTML(fmt.Sprint(err))
+		return HTML("Cant save embed cache: " + fmt.Sprint(err))
 	}
 
 	return c.RenderXml(feed)
