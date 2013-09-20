@@ -76,24 +76,24 @@ func Dedup(feed *rss.Feed, guid string) (err error) {
 	const urlToHashCachePath = "dedup-hash-cache"
 	urlToHashCache, err := cache.LoadLRUS(100000, urlToHashCachePath)
 	if err != nil {
-		return
+		return fmt.Errorf("Cant load hash cache: %s", err)
 	}
 	hashes := hashItems(feed.Channel.Items, urlToHashCache)
 	err = urlToHashCache.Save(urlToHashCachePath)
 	if err != nil {
-		return
+		return fmt.Errorf("Cant safe hash cache: %s", err)
 	}
 
 	// Init served links hash caches.
 	allItemsCachePath := getAllItemsCachePath(guid)
 	allItemsCache, err := cache.LoadLRUS(100000, allItemsCachePath)
 	if err != nil {
-		return
+		return fmt.Errorf("Cant load items cache: %s", err)
 	}
 	recentItemsCachePath := getRecentItemsCachePath(guid, feed)
 	recentItemsCache, err := cache.LoadLRUS(100000, recentItemsCachePath)
 	if err != nil {
-		return
+		return fmt.Errorf("Cant load recent items cache: %s", err)
 	}
 	newItemsCache := cache.NewLRUS(100000)
 
@@ -128,7 +128,11 @@ func Dedup(feed *rss.Feed, guid string) (err error) {
 	// Save served links hash caches.
 	err = allItemsCache.Save(allItemsCachePath)
 	if err != nil {
-		return
+		return fmt.Errorf("Cant save all items cache: %s", err)
 	}
-	return newItemsCache.Save(recentItemsCachePath)
+	err = newItemsCache.Save(recentItemsCachePath)
+	if err != nil {
+		return fmt.Errorf("Cant save items cache: %s", err)
+	}
+	return
 }
