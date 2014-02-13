@@ -19,9 +19,8 @@ type stringCache interface {
 }
 
 type Embedder struct {
-	cache      stringCache
-	args       map[string]string
-	strategies []strategy
+	cache stringCache
+	args  map[string]string
 }
 
 type EmbedInfo struct {
@@ -33,17 +32,21 @@ type strategy func(string) (EmbedInfo, error)
 
 var strategyWhiffError error = errors.New("No matching strategy.")
 
-func NewEmbedder(cache stringCache, args map[string]string) *Embedder {
-	e := &Embedder{cache: cache, args: args}
-	e.strategies = []strategy{
-		e.embedSimpleImage,
-		e.embedExtensionlessImage,
-		e.embedImgurGalleryImage,
-		e.embedQuickmeme,
-		e.embedRedditSelf,
+func (e *Embedder) strategyRunner(url string, strategies []strategy) (rv EmbedInfo, err error) {
+	for _, fn := range strategies {
+		rv, err = fn(url)
+		if err == nil {
+			return
+		} else if err != strategyWhiffError {
+			fmt.Sprintln("Error during getMarkup('%s'): %s", url, err)
+		}
 	}
-	e.addOembedStrategies()
-	return e
+	err = strategyWhiffError
+	return
+}
+
+func NewEmbedder(cache stringCache, args map[string]string) *Embedder {
+	return &Embedder{cache: cache, args: args}
 }
 
 func getBytes(url string) (bytes []byte, err error) {
@@ -96,8 +99,8 @@ func (e *Embedder) embedSimpleImage(url string) (rv EmbedInfo, err error) {
 			if strings.HasPrefix(mimeType, "image") {
 				rv.URL = url
 				rv.Html = imageMarkup(url)
+				return
 			}
-			break
 		}
 	}
 	err = strategyWhiffError
@@ -136,8 +139,16 @@ func (e *Embedder) embedQuickmeme(url string) (rv EmbedInfo, err error) {
 	return
 }
 
+func (e *Embedder) embedImage(url string) (rv EmbedInfo, err error) {
+	return e.strategyRunner(url, []strategy{
+		e.embedSimpleImage,
+		e.embedExtensionlessImage,
+		e.embedImgurGalleryImage,
+		e.embedQuickmeme,
+	})
+}
+
 func (e *Embedder) embedRedditSelf(url string) (rv EmbedInfo, err error) {
-	fmt.Println("This is a test")
 	matched, err := regexp.MatchString("reddit.com/r/", url)
 	if err != nil {
 		return
@@ -154,7 +165,7 @@ func (e *Embedder) embedRedditSelf(url string) (rv EmbedInfo, err error) {
 	doc.Find(".expando .usertext-body").Each(func(i int, s *goquery.Selection) {
 		s.Find("a").Each(func(i int, s *goquery.Selection) {
 			if href, ok := s.Attr("href"); ok {
-				embedInfo, err := e.Embed(href)
+				embedInfo, err := e.embedImage(href)
 				if err != nil {
 					return
 				}
@@ -226,7 +237,7 @@ func (e *Embedder) oembed(mustMatch, endpoint, uri string) (
 	return
 }
 
-func (e *Embedder) addOembedStrategies() {
+func (e *Embedder) embedOembed(url string) (rv EmbedInfo, err error) {
 	providers := map[string]string{
 		"http://api.imgur.com/oembed":             "imgur",
 		"http://www.youtube.com/oembed":           "youtu",
@@ -241,26 +252,23 @@ func (e *Embedder) addOembedStrategies() {
 	if apiKey, ok := e.args["EmbedlyAPIKey"]; ok {
 		providers["http://api.embed.ly/1/oembed?key="+apiKey] = ""
 	}
+	strategies := make([]strategy, 0)
 	for endpoint, mustMatch := range providers {
-		e.strategies = append(e.strategies, func(mustMatch, endpoint string) strategy {
+		strategies = append(strategies, func(mustMatch, endpoint string) strategy {
 			return func(url string) (rv EmbedInfo, err error) {
 				return e.oembed(mustMatch, endpoint, url)
 			}
 		}(mustMatch, endpoint))
 	}
+	return e.strategyRunner(url, strategies)
 }
 
 func (e *Embedder) embed(url string) (rv EmbedInfo, err error) {
-	for _, fn := range e.strategies {
-		rv, err = fn(url)
-		if err == nil {
-			return
-		} else if err != strategyWhiffError {
-			fmt.Sprintln("Error during getMarkup('%s'): %s", url, err)
-		}
-	}
-	err = strategyWhiffError
-	return
+	return e.strategyRunner(url, []strategy{
+		e.embedRedditSelf,
+		e.embedImage,
+		e.embedOembed,
+	})
 }
 
 func (e *Embedder) Embed(url string) (rv EmbedInfo, err error) {
