@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/pavelb/gorss/app/cache"
-	"github.com/pavelb/gorss/app/dedup"
+	// "github.com/pavelb/gorss/app/dedup"
 	"github.com/pavelb/gorss/app/embed"
 	"github.com/pavelb/gorss/app/rss"
 	"github.com/robfig/revel"
