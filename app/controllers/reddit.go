@@ -139,10 +139,10 @@ func (r HTML) Apply(req *revel.Request, resp *revel.Response) {
 func (c Reddit) Feed(r string) revel.Result {
 	parts := strings.Split(r, ":")
 	r = parts[0]
-	guid := "test"
-	if len(parts) > 1 {
-		guid = parts[1]
-	}
+	// guid := "test"
+	// if len(parts) > 1 {
+	// 	guid = parts[1]
+	// }
 
 	const embedCacheFile = "embedCache"
 
