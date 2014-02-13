@@ -1,9 +1,11 @@
 package embed
 
 import (
+	"code.google.com/p/go.net/html"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/PuerkitoBio/goquery"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -34,10 +36,11 @@ var strategyWhiffError error = errors.New("No matching strategy.")
 func NewEmbedder(cache stringCache, args map[string]string) *Embedder {
 	e := &Embedder{cache: cache, args: args}
 	e.strategies = []strategy{
-		e.embedImage,
+		e.embedSimpleImage,
 		e.embedExtensionlessImage,
 		e.embedImgurGalleryImage,
 		e.embedQuickmeme,
+		e.embedRedditSelf,
 	}
 	e.addOembedStrategies()
 	return e
@@ -82,7 +85,7 @@ func imgurGalleryMarkup(url string) (markup string, err error) {
 	return
 }
 
-func (e *Embedder) embedImage(url string) (rv EmbedInfo, err error) {
+func (e *Embedder) embedSimpleImage(url string) (rv EmbedInfo, err error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return
@@ -93,8 +96,8 @@ func (e *Embedder) embedImage(url string) (rv EmbedInfo, err error) {
 			if strings.HasPrefix(mimeType, "image") {
 				rv.URL = url
 				rv.Html = imageMarkup(url)
-				return
 			}
+			break
 		}
 	}
 	err = strategyWhiffError
@@ -102,7 +105,7 @@ func (e *Embedder) embedImage(url string) (rv EmbedInfo, err error) {
 }
 
 func (e *Embedder) embedExtensionlessImage(url string) (EmbedInfo, error) {
-	return e.embedImage(strings.TrimRight(url, "/") + ".png")
+	return e.embedSimpleImage(strings.TrimRight(url, "/") + ".png")
 }
 
 func (e *Embedder) embedImgurGalleryImage(url string) (EmbedInfo, error) {
@@ -130,6 +133,43 @@ func (e *Embedder) embedQuickmeme(url string) (rv EmbedInfo, err error) {
 		return
 	}
 	err = strategyWhiffError
+	return
+}
+
+func (e *Embedder) embedRedditSelf(url string) (rv EmbedInfo, err error) {
+	fmt.Println("This is a test")
+	matched, err := regexp.MatchString("reddit.com/r/", url)
+	if err != nil {
+		return
+	}
+	if !matched {
+		err = strategyWhiffError
+		return
+	}
+	rv.URL = url
+	doc, err := goquery.NewDocument(url)
+	if err != nil {
+		return
+	}
+	doc.Find(".expando .usertext-body").Each(func(i int, s *goquery.Selection) {
+		s.Find("a").Each(func(i int, s *goquery.Selection) {
+			if href, ok := s.Attr("href"); ok {
+				embedInfo, err := e.Embed(href)
+				if err != nil {
+					return
+				}
+				node, err := html.Parse(strings.NewReader(embedInfo.Html))
+				if err != nil {
+					return
+				}
+				parent := s.Parent().Get(0)
+				parent.RemoveChild(s.Get(0))
+				parent.AppendChild(node)
+			}
+		})
+		rv.Html, err = s.Html()
+		return
+	})
 	return
 }
 
