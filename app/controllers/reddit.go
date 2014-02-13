@@ -160,10 +160,10 @@ func (c Reddit) Feed(r string) revel.Result {
 		return HTML("Cant get xml feed: " + fmt.Sprint(err))
 	}
 
-	err = dedup.Dedup(feed, guid)
-	if err != nil {
-		return HTML("Cant dedup: " + fmt.Sprint(err))
-	}
+	// err = dedup.Dedup(feed, guid)
+	// if err != nil {
+	// 	return HTML("Cant dedup: " + fmt.Sprint(err))
+	// }
 
 	err = embedCache.Save(embedCacheFile)
 	if err != nil {
